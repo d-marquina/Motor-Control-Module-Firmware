@@ -8,7 +8,16 @@
 //=================================================
 void serial_rx_handler();
 void serial_write(uint8_t *data, uint16_t len);
-void control_loop_task(void * pvParameters);
+void control_loop_task(void *pvParameters);
+
+//=================================================
+// Declaración de Estructuras
+//=================================================
+typedef struct
+{
+  uint32_t timestamp;
+  float data;
+} sensor_timeseries;
 
 //=================================================
 // Variables
@@ -20,6 +29,7 @@ uint32_t led_timer = 0;
 char device_id[] = "MCM_00";
 
 uint16_t angulo = 0;
+sensor_timeseries angle_sensor = {0, 0};
 
 uint8_t en_pin = 27;
 uint8_t dir_pin = 26;
@@ -43,6 +53,7 @@ eui_message_t tracked_variables[] =
         EUI_UINT16("MCM_angle", angulo),
         EUI_UINT8("MCM_test_flag", test_flag),
         EUI_INT16("MCM_motor_speed", mot_speed),
+        EUI_CUSTOM_RO("angle_sensor", angle_sensor),
 };
 
 AS5600 as5600;
@@ -74,13 +85,13 @@ void setup()
   ledcAttachPin(pul_pin, ledc_channel);
 
   xTaskCreatePinnedToCore(
-    control_loop_task, /* Task function. */
-    "ControlLoopTask", /* name of task. */
-    10000, /* Stack size of task */
-    NULL, /* parameter of the task */
-    1, /* priority of the task */
-    &control_loop_task_handle, /* Task handle to keep track of created task */
-    0); /* pin task to core 0 */
+      control_loop_task,         /* Task function. */
+      "ControlLoopTask",         /* name of task. */
+      10000,                     /* Stack size of task */
+      NULL,                      /* parameter of the task */
+      1,                         /* priority of the task */
+      &control_loop_task_handle, /* Task handle to keep track of created task */
+      0);                        /* pin task to core 0 */
 
   led_timer = millis();
 }
@@ -102,21 +113,6 @@ void loop()
     }
   }
   digitalWrite(LED_BUILTIN, led_state);
-
-  //angulo = as5600.readAngle();
-
-  /*if (test_flag != old_test_flag)
-  {
-    if (test_flag > 0)
-    {
-      ledcWriteTone(ledc_channel, mot_speed);
-    }
-    else
-    {
-      ledcWriteTone(ledc_channel, 0);
-    }
-    old_test_flag = test_flag;
-  }//*/
 }
 
 //=================================================
@@ -136,13 +132,17 @@ void serial_write(uint8_t *data, uint16_t len)
   Serial.write(data, len);
 }
 
-void control_loop_task( void * pvParameters ){ 
+void control_loop_task(void *pvParameters)
+{
   const TickType_t taskPeriod = 10; // ms
   TickType_t xLastWakeTime = xTaskGetTickCount();
 
-  for(;;){ 
-    //Control Loop here
+  for (;;)
+  {
+    // Control Loop here
     angulo = as5600.readAngle();
+    angle_sensor.timestamp = millis();
+    angle_sensor.data = as5600.readAngle() * 0.088; // To degrees
 
     if (test_flag > 0)
     {
@@ -152,6 +152,8 @@ void control_loop_task( void * pvParameters ){
     {
       ledcWriteTone(ledc_channel, 0);
     }
+
+    eui_send_tracked("angle_sensor");
 
     vTaskDelayUntil(&xLastWakeTime, taskPeriod);
   }
