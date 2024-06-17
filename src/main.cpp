@@ -22,11 +22,10 @@ uint16_t angulo = 0;
 uint8_t en_pin = 27;
 uint8_t dir_pin = 26;
 uint8_t pul_pin = 25;
-
+const int ledc_channel = 0;
 bool mot_dir = false;
 int16_t mot_speed = 0;
 int16_t mot_abs_speed = 0;
-const int ledc_channel = 0;
 uint8_t test_flag = 0;
 uint8_t old_test_flag = 0;
 
@@ -54,14 +53,6 @@ void setup()
   Serial.begin(115200);
   pinMode(LED_BUILTIN, OUTPUT);
 
-  pinMode(en_pin, OUTPUT);
-  pinMode(dir_pin, OUTPUT);
-  pinMode(pul_pin, OUTPUT);
-  digitalWrite(en_pin, LOW);   // Enable by default
-  digitalWrite(dir_pin, HIGH); // Depends on connection
-  ledcSetup(ledc_channel, 0, 8);
-  ledcAttachPin(pul_pin, ledc_channel);
-
   eui_setup_interface(&serial_comms);
   EUI_TRACK(tracked_variables);
   eui_setup_identifier(device_id, 24);
@@ -69,6 +60,14 @@ void setup()
   Wire.begin(17, 16); // SDA, SCL
   as5600.begin(4);
   as5600.setDirection(AS5600_CLOCK_WISE);
+
+  pinMode(en_pin, OUTPUT);
+  pinMode(dir_pin, OUTPUT);
+  pinMode(pul_pin, OUTPUT);
+  digitalWrite(en_pin, LOW);   // Enabled by default
+  digitalWrite(dir_pin, HIGH); // Depends on connection
+  ledcSetup(ledc_channel, 0, 8);
+  ledcAttachPin(pul_pin, ledc_channel);
 
   led_timer = millis();
 }
@@ -93,15 +92,18 @@ void loop()
 
   angulo = as5600.readAngle();
 
-  if (test_flag != old_test_flag){
-    if (test_flag > 0){
+  if (test_flag != old_test_flag)
+  {
+    if (test_flag > 0)
+    {
       ledcWriteTone(ledc_channel, mot_speed);
-    } else {
+    }
+    else
+    {
       ledcWriteTone(ledc_channel, 0);
     }
     old_test_flag = test_flag;
   }
-  
 }
 
 //=================================================
