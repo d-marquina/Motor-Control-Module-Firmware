@@ -1,3 +1,4 @@
+/* espressif32 @ 6.7.0 */
 #include <Arduino.h>
 #include "electricui.h"
 #include "AS5600.h"
@@ -7,6 +8,7 @@
 //=================================================
 void serial_rx_handler();
 void serial_write(uint8_t *data, uint16_t len);
+void control_loop_task(void * pvParameters);
 
 //=================================================
 // Variables
@@ -45,6 +47,8 @@ eui_message_t tracked_variables[] =
 
 AS5600 as5600;
 
+TaskHandle_t control_loop_task_handle;
+
 //=================================================
 // Inicialización
 //=================================================
@@ -69,6 +73,15 @@ void setup()
   ledcSetup(ledc_channel, 0, 8);
   ledcAttachPin(pul_pin, ledc_channel);
 
+  xTaskCreatePinnedToCore(
+    control_loop_task, /* Task function. */
+    "ControlLoopTask", /* name of task. */
+    10000, /* Stack size of task */
+    NULL, /* parameter of the task */
+    1, /* priority of the task */
+    &control_loop_task_handle, /* Task handle to keep track of created task */
+    0); /* pin task to core 0 */
+
   led_timer = millis();
 }
 
@@ -90,9 +103,9 @@ void loop()
   }
   digitalWrite(LED_BUILTIN, led_state);
 
-  angulo = as5600.readAngle();
+  //angulo = as5600.readAngle();
 
-  if (test_flag != old_test_flag)
+  /*if (test_flag != old_test_flag)
   {
     if (test_flag > 0)
     {
@@ -103,7 +116,7 @@ void loop()
       ledcWriteTone(ledc_channel, 0);
     }
     old_test_flag = test_flag;
-  }
+  }//*/
 }
 
 //=================================================
@@ -121,4 +134,25 @@ void serial_rx_handler()
 void serial_write(uint8_t *data, uint16_t len)
 {
   Serial.write(data, len);
+}
+
+void control_loop_task( void * pvParameters ){ 
+  const TickType_t taskPeriod = 10; // ms
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+
+  for(;;){ 
+    //Control Loop here
+    angulo = as5600.readAngle();
+
+    if (test_flag > 0)
+    {
+      ledcWriteTone(ledc_channel, mot_speed);
+    }
+    else
+    {
+      ledcWriteTone(ledc_channel, 0);
+    }
+
+    vTaskDelayUntil(&xLastWakeTime, taskPeriod);
+  }
 }
