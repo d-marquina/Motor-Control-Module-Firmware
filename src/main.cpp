@@ -32,25 +32,28 @@ typedef struct
 //=================================================
 uint8_t blink_enable = 1;
 uint8_t led_state = 0;
-uint16_t glow_time = 200;
-uint32_t led_timer = 0;//*/
+uint16_t glow_time = 1000;
+uint32_t led_timer = 0; //*/
 char device_id[] = "MCM_00";
 
-uint16_t angulo = 0;
+float MCM_angle = 0;
 sensor_timeseries angle_sensor = {0, 0};
 
 uint8_t en_pin = 27;
 uint8_t dir_pin = 26;
 uint8_t pul_pin = 25;
 const int ledc_channel = 0;
+uint8_t MCM_en_mot = 0;
+uint8_t old_MCM_en_mot = 0;
 bool mot_dir = false;
+int16_t MCM_mot_sp = 0;
 int16_t mot_speed = 0;
 int16_t mot_abs_speed = 0;
-uint8_t test_flag = 0;
-uint8_t old_test_flag = 0;
 
 settings_struct module_settings = {false, true, 0, 10};
-uint8_t test_cl_enable = false;
+uint8_t MCM_pid_mode = false;
+uint8_t old_MCM_pid_mode = false;
+float MCM_set_pt = 180;
 uint32_t tracker_loop = 0;
 
 //=================================================
@@ -61,10 +64,12 @@ eui_message_t tracked_variables[] =
     {
         EUI_UINT8("led_blink", blink_enable),
         EUI_UINT8("led_state", led_state),
-        EUI_UINT16("lit_time", glow_time),//*/
-        EUI_UINT16("MCM_angle", angulo),
-        EUI_UINT8("MCM_test_flag", test_flag),
-        EUI_INT16("MCM_motor_speed", mot_speed),
+        EUI_UINT16("lit_time", glow_time), //*/
+        EUI_FLOAT("MCM_angle", MCM_angle),
+        EUI_UINT8("MCM_en_mot", MCM_en_mot),
+        EUI_INT16("MCM_mot_sp", MCM_mot_sp),
+        EUI_UINT8("MCM_pid_mode", MCM_pid_mode),
+        EUI_FLOAT("MCM_set_pt", MCM_set_pt),
         EUI_CUSTOM_RO("angle_sensor", angle_sensor),
         EUI_CUSTOM("settings", module_settings),
 };
@@ -92,7 +97,7 @@ void setup()
   pinMode(en_pin, OUTPUT);
   pinMode(dir_pin, OUTPUT);
   pinMode(pul_pin, OUTPUT);
-  digitalWrite(en_pin, LOW);   // Enabled by default
+  digitalWrite(en_pin, HIGH);  // Disabled by default
   digitalWrite(dir_pin, HIGH); // Depends on connection
   ledcSetup(ledc_channel, 0, 8);
   ledcAttachPin(pul_pin, ledc_channel);
@@ -125,13 +130,39 @@ void loop()
       led_timer = millis();
     }
   }
-  digitalWrite(LED_BUILTIN, led_state);//*/
+  digitalWrite(LED_BUILTIN, led_state); //*/
 
-  if (module_settings.begin_flag)
+  if (MCM_en_mot != old_MCM_en_mot)
   {
+    if (MCM_en_mot == 1)
+    {
+      digitalWrite(en_pin, LOW); // Enabled with LOW
+    }
+    else if (MCM_en_mot == 0)
+    {
+      digitalWrite(en_pin, HIGH); // Disabled with HIGH
+      MCM_mot_sp = 0;
+      ledcWriteTone(ledc_channel, MCM_mot_sp);
+      eui_send_tracked("MCM_mot_sp");
+    }
+    old_MCM_en_mot = MCM_en_mot;
+  }
+
+  if (MCM_pid_mode != old_MCM_pid_mode)
+  {
+    // Reset Motor
+    MCM_mot_sp = 0;
+    ledcWriteTone(ledc_channel, MCM_mot_sp);
+    eui_send_tracked("MCM_mot_sp");
+    // Reset Set Point
+    MCM_set_pt = 180;
+    eui_send_tracked("MCM_set_pt");
+    // Reset recording data
     module_settings.begin_flag = false;
-    module_settings.end_flag = false;
-    test_cl_enable = true;
+    module_settings.end_flag = true;
+    module_settings.trigger_signal = 0;
+    // Update backup variable
+    old_MCM_pid_mode = MCM_pid_mode;
   }
 }
 
@@ -159,36 +190,36 @@ void control_loop_task(void *pvParameters)
 
   for (;;)
   {
-    // Control Loop here
-    angulo = as5600.readAngle();
+    MCM_angle = as5600.readAngle() * 0.088; // To degrees
     angle_sensor.timestamp = millis();
     angle_sensor.data = as5600.readAngle() * 0.088; // To degrees
 
-    if (test_cl_enable){
-      //my_sin_signal.data = sin_signal;
-      module_settings.trigger_signal += 1;
-
-      if (module_settings.trigger_signal >= module_settings.refresh_rate)
-      {
-        module_settings.trigger_signal = 0;
-      }
-
-      tracker_loop += 1;
-      if (tracker_loop >= 900)
-      {
-        tracker_loop = 0;
-        module_settings.end_flag = true;
-        test_cl_enable = false;
-      }
-    }
-
-    if (test_flag > 0)
+    if (MCM_pid_mode)
     {
-      ledcWriteTone(ledc_channel, mot_speed);
+      //--------------------
+      // PID code here
+      //--------------------
+
+      if (module_settings.begin_flag)
+      {
+        module_settings.trigger_signal += 1;
+        if (module_settings.trigger_signal >= module_settings.refresh_rate)
+        {
+          module_settings.trigger_signal = 0;
+        }
+
+        tracker_loop += 10; // Ts in ms, same as taskPeriod
+        if (tracker_loop >= 10000)
+        {
+          tracker_loop = 0;
+          module_settings.begin_flag = false;
+          module_settings.end_flag = true;
+        }
+      }
     }
     else
     {
-      ledcWriteTone(ledc_channel, 0);
+      ledcWriteTone(ledc_channel, MCM_mot_sp);
     }
 
     eui_send_tracked("angle_sensor");
