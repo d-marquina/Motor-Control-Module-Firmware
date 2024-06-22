@@ -4,20 +4,20 @@
 #include "AS5600.h"
 
 //=================================================
-// Declaración de Funciones
+// Function Declarations
 //=================================================
 void serial_rx_handler();
 void serial_write(uint8_t *data, uint16_t len);
 void control_loop_task(void *pvParameters);
 
 //=================================================
-// Declaración de Estructuras
+// Structure Declarations
 //=================================================
 typedef struct
 {
   uint32_t timestamp;
   float data;
-} sensor_timeseries;
+} data_timeseries;
 
 typedef struct
 {
@@ -37,7 +37,7 @@ uint32_t led_timer = 0; //*/
 char device_id[] = "MCM_00";
 
 float MCM_angle = 0;
-sensor_timeseries angle_sensor = {0, 0};
+data_timeseries angle_sensor = {0, 0};
 
 uint8_t en_pin = 27;
 uint8_t dir_pin = 26;
@@ -45,19 +45,34 @@ uint8_t pul_pin = 25;
 const int ledc_channel = 0;
 uint8_t MCM_en_mot = 0;
 uint8_t old_MCM_en_mot = 0;
-bool mot_dir = false;
 int16_t MCM_mot_sp = 0;
-int16_t mot_speed = 0;
-int16_t mot_abs_speed = 0;
 
+data_timeseries set_pt_stream = {0, 0};
 settings_struct module_settings = {false, true, 0, 10};
 uint8_t MCM_pid_mode = false;
 uint8_t old_MCM_pid_mode = false;
 float MCM_set_pt = 180;
 uint32_t tracker_loop = 0;
 
+float MCM_b0 = 0;
+float MCM_b1 = 0;
+float MCM_b2 = 0;
+float MCM_a1 = 0;
+float MCM_Ts = 0; // ms
+
+// PID Variables
+float Ts = 10; // ms
+float b[3] = {0, 0, 0};
+float a1 = 0;
+float e[3] = {0, 0, 0};
+float u[2] = {0, 0};
+float sat = 5000;      // steps/s
+int16_t mot_speed = 0; // steps/s
+bool mot_dir = true;   // Clockwise, depends on connections
+int16_t old_mot_speed = 0;
+
 //=================================================
-// Objetos
+// Objects
 //=================================================
 eui_interface_t serial_comms = EUI_INTERFACE(&serial_write);
 eui_message_t tracked_variables[] =
@@ -70,7 +85,13 @@ eui_message_t tracked_variables[] =
         EUI_INT16("MCM_mot_sp", MCM_mot_sp),
         EUI_UINT8("MCM_pid_mode", MCM_pid_mode),
         EUI_FLOAT("MCM_set_pt", MCM_set_pt),
+        EUI_FLOAT("MCM_b0", MCM_b0),
+        EUI_FLOAT("MCM_b1", MCM_b1),
+        EUI_FLOAT("MCM_b2", MCM_b2),
+        EUI_FLOAT("MCM_a1", MCM_a1),
+        EUI_FLOAT("MCM_Ts", MCM_Ts),
         EUI_CUSTOM_RO("angle_sensor", angle_sensor),
+        EUI_CUSTOM_RO("set_pt_stream", set_pt_stream),
         EUI_CUSTOM("settings", module_settings),
 };
 
@@ -79,7 +100,7 @@ AS5600 as5600;
 TaskHandle_t control_loop_task_handle;
 
 //=================================================
-// Inicialización
+// Initialization
 //=================================================
 void setup()
 {
@@ -97,8 +118,8 @@ void setup()
   pinMode(en_pin, OUTPUT);
   pinMode(dir_pin, OUTPUT);
   pinMode(pul_pin, OUTPUT);
-  digitalWrite(en_pin, HIGH);  // Disabled by default
-  digitalWrite(dir_pin, HIGH); // Depends on connection
+  digitalWrite(en_pin, HIGH);     // Disabled by default
+  digitalWrite(dir_pin, mot_dir); // Depends on connection
   ledcSetup(ledc_channel, 0, 8);
   ledcAttachPin(pul_pin, ledc_channel);
 
@@ -115,7 +136,7 @@ void setup()
 }
 
 //=================================================
-// Lazo principal
+// Main Loop
 //=================================================
 void loop()
 {
@@ -164,10 +185,17 @@ void loop()
     // Update backup variable
     old_MCM_pid_mode = MCM_pid_mode;
   }
+
+  // PID Coefficients Update
+  b[0] = MCM_b0;
+  b[1] = MCM_b1;
+  b[2] = MCM_b2;
+  a1 = MCM_a1;
+  MCM_Ts = Ts; //*/
 }
 
 //=================================================
-// Definición de Funciones
+// Function Definitions
 //=================================================
 void serial_rx_handler()
 {
@@ -185,20 +213,68 @@ void serial_write(uint8_t *data, uint16_t len)
 
 void control_loop_task(void *pvParameters)
 {
-  const TickType_t taskPeriod = 10; // ms
   TickType_t xLastWakeTime = xTaskGetTickCount();
+  const TickType_t taskPeriod = Ts; // ms
 
   for (;;)
   {
     MCM_angle = as5600.readAngle() * 0.088; // To degrees
     angle_sensor.timestamp = millis();
-    angle_sensor.data = as5600.readAngle() * 0.088; // To degrees
+    angle_sensor.data = MCM_angle;
+    set_pt_stream.timestamp = angle_sensor.timestamp;
+    set_pt_stream.data = MCM_set_pt;
 
     if (MCM_pid_mode)
     {
-      //--------------------
-      // PID code here
-      //--------------------
+      //----------------------
+      // PID code begins here
+      //----------------------
+      e[0] = MCM_set_pt - MCM_angle;
+
+      u[0] = b[0] * e[0] + b[1] * e[1] + b[2] * e[2] + a1 * u[1];
+
+      if (u[0] >= sat)
+      {
+        u[0] = sat;
+      }
+      else if (u[0] <= -sat)
+      {
+        u[0] = -sat;
+      }
+
+      mot_speed = int(u[0]);
+      if (mot_speed >= 0)
+      {
+        mot_dir = true;
+      }
+      else
+      {
+        mot_speed = -mot_speed;
+        mot_dir = false;
+      }
+
+      // Limit Acceleration
+      int16_t diff_mot_speed = mot_speed - old_mot_speed;
+      if (diff_mot_speed > 20 * Ts)
+      {
+        mot_speed = old_mot_speed + 20 * Ts;
+      }
+      else if (diff_mot_speed < -20 * Ts)
+      {
+        mot_speed = old_mot_speed - 20 * Ts;
+      }
+
+      digitalWrite(dir_pin, mot_dir);
+      ledcWriteTone(ledc_channel, mot_speed); //*/
+
+      e[2] = e[1];
+      e[1] = e[0];
+      u[1] = int(u[0]);
+      old_mot_speed = mot_speed;
+
+      //----------------------
+      // PID code ends here
+      //----------------------
 
       if (module_settings.begin_flag)
       {
@@ -208,7 +284,7 @@ void control_loop_task(void *pvParameters)
           module_settings.trigger_signal = 0;
         }
 
-        tracker_loop += 10; // Ts in ms, same as taskPeriod
+        tracker_loop += int(Ts); // Ts in ms, same as taskPeriod
         if (tracker_loop >= 10000)
         {
           tracker_loop = 0;
@@ -223,6 +299,7 @@ void control_loop_task(void *pvParameters)
     }
 
     eui_send_tracked("angle_sensor");
+    eui_send_tracked("set_pt_stream");
     eui_send_tracked("settings");
 
     vTaskDelayUntil(&xLastWakeTime, taskPeriod);
