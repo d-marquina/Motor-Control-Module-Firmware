@@ -60,16 +60,11 @@ float MCM_b2 = 0;
 float MCM_a1 = 0;
 float MCM_Ts = 0; // ms
 
+//--------------
 // PID Variables
-float Ts = 10; // ms
-float b[3] = {0, 0, 0};
-float a1 = 0;
-float e[3] = {0, 0, 0};
-float u[2] = {0, 0};
-float sat = 5000;      // steps/s
-int16_t mot_speed = 0; // steps/s
-bool mot_dir = true;   // Clockwise, depends on connections
-int16_t old_mot_speed = 0;
+//--------------
+
+//--------------
 
 //=================================================
 // Objects
@@ -186,12 +181,11 @@ void loop()
     old_MCM_pid_mode = MCM_pid_mode;
   }
 
+  //------------------------
   // PID Coefficients Update
-  b[0] = MCM_b0;
-  b[1] = MCM_b1;
-  b[2] = MCM_b2;
-  a1 = MCM_a1;
-  MCM_Ts = Ts; //*/
+  //------------------------
+
+  //------------------------
 }
 
 //=================================================
@@ -229,48 +223,6 @@ void control_loop_task(void *pvParameters)
       //----------------------
       // PID code begins here
       //----------------------
-      e[0] = MCM_set_pt - MCM_angle;
-
-      u[0] = b[0] * e[0] + b[1] * e[1] + b[2] * e[2] + a1 * u[1];
-
-      if (u[0] >= sat)
-      {
-        u[0] = sat;
-      }
-      else if (u[0] <= -sat)
-      {
-        u[0] = -sat;
-      }
-
-      mot_speed = int(u[0]);
-      if (mot_speed >= 0)
-      {
-        mot_dir = true;
-      }
-      else
-      {
-        mot_speed = -mot_speed;
-        mot_dir = false;
-      }
-
-      // Limit Acceleration
-      int16_t diff_mot_speed = mot_speed - old_mot_speed;
-      if (diff_mot_speed > 20 * Ts)
-      {
-        mot_speed = old_mot_speed + 20 * Ts;
-      }
-      else if (diff_mot_speed < -20 * Ts)
-      {
-        mot_speed = old_mot_speed - 20 * Ts;
-      }
-
-      digitalWrite(dir_pin, mot_dir);
-      ledcWriteTone(ledc_channel, mot_speed); //*/
-
-      e[2] = e[1];
-      e[1] = e[0];
-      u[1] = int(u[0]);
-      old_mot_speed = mot_speed;
 
       //----------------------
       // PID code ends here
