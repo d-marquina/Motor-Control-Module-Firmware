@@ -45,13 +45,15 @@ uint8_t pul_pin = 25;
 const int ledc_channel = 0;
 uint8_t MCM_en_mot = 0;
 uint8_t old_MCM_en_mot = 0;
-int16_t MCM_mot_sp = 0;
+int16_t MCM_mot_sp = 0; // Max 210 RPM at steps/s
+int8_t MCM_ustep = 8;   // 1/8 microstep by default
+int8_t old_ustep = 8;
 
 data_timeseries set_pt_stream = {0, 0};
 settings_struct module_settings = {false, true, 0, 10};
 uint8_t MCM_pid_mode = false;
 uint8_t old_MCM_pid_mode = false;
-float MCM_set_pt = 180;
+float MCM_set_pt = 200;
 uint32_t tracker_loop = 0;
 
 float MCM_b0 = 0;
@@ -66,7 +68,7 @@ float b[3] = {0, 0, 0};
 float a1 = 0;
 float e[3] = {0, 0, 0};
 float u[2] = {0, 0};
-float sat = 5000;      // steps/s
+float sat = 500 * 8;   // 500 steps/s (at 8 microsteps) = 150 RPM
 int16_t mot_speed = 0; // steps/s
 bool mot_dir = true;   // Clockwise, depends on connections
 int16_t old_mot_speed = 0;
@@ -83,6 +85,7 @@ eui_message_t tracked_variables[] =
         EUI_FLOAT("MCM_angle", MCM_angle),
         EUI_UINT8("MCM_en_mot", MCM_en_mot),
         EUI_INT16("MCM_mot_sp", MCM_mot_sp),
+        EUI_INT8("MCM_ustep", MCM_ustep),
         EUI_UINT8("MCM_pid_mode", MCM_pid_mode),
         EUI_FLOAT("MCM_set_pt", MCM_set_pt),
         EUI_FLOAT("MCM_b0", MCM_b0),
@@ -186,6 +189,12 @@ void loop()
     old_MCM_pid_mode = MCM_pid_mode;
   }
 
+  if (MCM_ustep != old_ustep)
+  {
+    sat = 500 * MCM_ustep;
+    old_ustep = MCM_ustep;
+  }
+
   // PID Coefficients Update
   b[0] = MCM_b0;
   b[1] = MCM_b1;
@@ -218,7 +227,8 @@ void control_loop_task(void *pvParameters)
 
   for (;;)
   {
-    MCM_angle = as5600.readAngle() * 0.088; // To degrees
+    MCM_angle = as5600.getCumulativePosition() * 0.088; // To degrees
+    // MCM_angle = as5600.readAngle() * 0.088; // To degrees
     angle_sensor.timestamp = millis();
     angle_sensor.data = MCM_angle;
     set_pt_stream.timestamp = angle_sensor.timestamp;
@@ -254,7 +264,7 @@ void control_loop_task(void *pvParameters)
       }
 
       // Limit Acceleration
-      int16_t diff_mot_speed = mot_speed - old_mot_speed;
+      /*int16_t diff_mot_speed = mot_speed - old_mot_speed;
       if (diff_mot_speed > 20 * Ts)
       {
         mot_speed = old_mot_speed + 20 * Ts;
@@ -262,7 +272,7 @@ void control_loop_task(void *pvParameters)
       else if (diff_mot_speed < -20 * Ts)
       {
         mot_speed = old_mot_speed - 20 * Ts;
-      }
+      }//*/
 
       digitalWrite(dir_pin, mot_dir);
       ledcWriteTone(ledc_channel, mot_speed); //*/
