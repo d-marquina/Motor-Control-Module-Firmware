@@ -70,7 +70,7 @@ float b[3] = {0, 0, 0};
 float a1 = 0;
 float e[3] = {0, 0, 0};
 float u[2] = {0, 0};
-float sat = 400 * 8;   // 400 steps/s (at 8 microsteps) = 120 RPM
+float sat = 100 * 8;   // 400 steps/s (at 8 microsteps) = 120 RPM
 int16_t mot_speed = 0; // steps/s
 bool mot_dir = true;   // Clockwise, depends on connections
 int16_t old_mot_speed = 0;
@@ -318,7 +318,18 @@ void control_loop_task(void *pvParameters)
     }
     else
     {
-      ledcWriteTone(ledc_channel, MCM_mot_sp);
+      int16_t new_mot_sp = MCM_mot_sp;
+      if (new_mot_sp >= 0)
+      {
+        mot_dir = true;
+      }
+      else
+      {
+        new_mot_sp = -new_mot_sp;
+        mot_dir = false;
+      }
+      digitalWrite(dir_pin, mot_dir);
+      ledcWriteTone(ledc_channel, new_mot_sp);
     }
 
     eui_send_tracked("angle_sensor");
