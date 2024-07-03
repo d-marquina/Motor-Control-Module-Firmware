@@ -119,6 +119,7 @@ void setup()
   eui_setup_identifier(device_id, 24);
 
   Wire.begin(17, 16); // SDA, SCL
+  Wire.setClock(400000);
   as5600.begin(4);
   as5600.setDirection(AS5600_CLOCK_WISE);
   as5600.resetCumulativePosition();
@@ -234,11 +235,11 @@ void control_loop_task(void *pvParameters)
 
   for (;;)
   {
-    /*float real_angle = as5600.getCumulativePosition() * 0.088; // To degrees
+    float real_angle = as5600.getCumulativePosition() * 0.088; // To degrees
     float real_set_point = MCM_set_pt * MCM_tr_d / MCM_tr_n;
-    MCM_angle = real_angle * MCM_tr_n / MCM_tr_d;//*/
+    MCM_angle = real_angle * MCM_tr_n / MCM_tr_d; //*/
     // MCM_angle = as5600.getCumulativePosition() * 0.088; // To degrees
-    MCM_angle = as5600.readAngle() * 0.088; // To degrees
+    // MCM_angle = as5600.readAngle() * 0.088; // To degrees
     angle_sensor.timestamp = millis();
     angle_sensor.data = MCM_angle;
     set_pt_stream.timestamp = angle_sensor.timestamp;
@@ -249,8 +250,8 @@ void control_loop_task(void *pvParameters)
       //----------------------
       // PID code begins here
       //----------------------
-      // e[0] = real_set_point - real_angle;
-      e[0] = MCM_set_pt - MCM_angle;
+      e[0] = real_set_point - real_angle;
+      // e[0] = MCM_set_pt - MCM_angle;
 
       u[0] = b[0] * e[0] + b[1] * e[1] + b[2] * e[2] + a1 * u[1];
 
@@ -275,7 +276,7 @@ void control_loop_task(void *pvParameters)
       }
 
       // Limit Acceleration
-      /*int16_t diff_mot_speed = mot_speed - old_mot_speed;
+      int16_t diff_mot_speed = mot_speed - old_mot_speed;
       int16_t accel_sat = MCM_ustep * int(Ts * 0.2 * 10); // Acceleration set to 10 rev/s2
       if (diff_mot_speed > accel_sat)
       {
