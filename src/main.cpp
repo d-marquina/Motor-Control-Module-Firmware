@@ -70,7 +70,7 @@ float b[3] = {0, 0, 0};
 float a1 = 0;
 float e[3] = {0, 0, 0};
 float u[2] = {0, 0};
-float sat = 400 * 8;   // 500 steps/s (at 8 microsteps) = 120 RPM
+float sat = 400 * 8;   // 400 steps/s (at 8 microsteps) = 120 RPM
 int16_t mot_speed = 0; // steps/s
 bool mot_dir = true;   // Clockwise, depends on connections
 int16_t old_mot_speed = 0;
