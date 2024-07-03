@@ -53,8 +53,10 @@ data_timeseries set_pt_stream = {0, 0};
 settings_struct module_settings = {false, true, 0, 10};
 uint8_t MCM_pid_mode = false;
 uint8_t old_MCM_pid_mode = false;
-float MCM_set_pt = 200;
+float MCM_set_pt = 0;
 uint32_t tracker_loop = 0;
+uint16_t MCM_tr_n = 1;
+uint16_t MCM_tr_d = 1;
 
 float MCM_b0 = 0;
 float MCM_b1 = 0;
@@ -68,7 +70,7 @@ float b[3] = {0, 0, 0};
 float a1 = 0;
 float e[3] = {0, 0, 0};
 float u[2] = {0, 0};
-float sat = 500 * 8;   // 500 steps/s (at 8 microsteps) = 150 RPM
+float sat = 400 * 8;   // 500 steps/s (at 8 microsteps) = 120 RPM
 int16_t mot_speed = 0; // steps/s
 bool mot_dir = true;   // Clockwise, depends on connections
 int16_t old_mot_speed = 0;
@@ -88,6 +90,8 @@ eui_message_t tracked_variables[] =
         EUI_INT8("MCM_ustep", MCM_ustep),
         EUI_UINT8("MCM_pid_mode", MCM_pid_mode),
         EUI_FLOAT("MCM_set_pt", MCM_set_pt),
+        EUI_UINT16("MCM_tr_n", MCM_tr_n),
+        EUI_UINT16("MCM_tr_d", MCM_tr_d),
         EUI_FLOAT("MCM_b0", MCM_b0),
         EUI_FLOAT("MCM_b1", MCM_b1),
         EUI_FLOAT("MCM_b2", MCM_b2),
@@ -117,6 +121,7 @@ void setup()
   Wire.begin(17, 16); // SDA, SCL
   as5600.begin(4);
   as5600.setDirection(AS5600_CLOCK_WISE);
+  as5600.resetCumulativePosition();
 
   pinMode(en_pin, OUTPUT);
   pinMode(dir_pin, OUTPUT);
@@ -179,7 +184,7 @@ void loop()
     ledcWriteTone(ledc_channel, MCM_mot_sp);
     eui_send_tracked("MCM_mot_sp");
     // Reset Set Point
-    MCM_set_pt = 180;
+    MCM_set_pt = 0;
     eui_send_tracked("MCM_set_pt");
     // Reset recording data
     module_settings.begin_flag = false;
@@ -227,7 +232,10 @@ void control_loop_task(void *pvParameters)
 
   for (;;)
   {
-    MCM_angle = as5600.getCumulativePosition() * 0.088; // To degrees
+    float real_angle = as5600.getCumulativePosition() * 0.088; // To degrees
+    float real_set_point = MCM_set_pt * MCM_tr_d / MCM_tr_n;
+    MCM_angle = real_angle * MCM_tr_n / MCM_tr_d;
+    // MCM_angle = as5600.getCumulativePosition() * 0.088; // To degrees
     // MCM_angle = as5600.readAngle() * 0.088; // To degrees
     angle_sensor.timestamp = millis();
     angle_sensor.data = MCM_angle;
@@ -239,7 +247,8 @@ void control_loop_task(void *pvParameters)
       //----------------------
       // PID code begins here
       //----------------------
-      e[0] = MCM_set_pt - MCM_angle;
+      e[0] = real_set_point - real_angle;
+      // e[0] = MCM_set_pt - MCM_angle;
 
       u[0] = b[0] * e[0] + b[1] * e[1] + b[2] * e[2] + a1 * u[1];
 
@@ -264,15 +273,16 @@ void control_loop_task(void *pvParameters)
       }
 
       // Limit Acceleration
-      /*int16_t diff_mot_speed = mot_speed - old_mot_speed;
-      if (diff_mot_speed > 20 * Ts)
+      int16_t diff_mot_speed = mot_speed - old_mot_speed;
+      int16_t accel_sat = MCM_ustep * int(Ts * 0.2 * 10); // Acceleration set to 10 rev/s2
+      if (diff_mot_speed > accel_sat)
       {
-        mot_speed = old_mot_speed + 20 * Ts;
+        mot_speed = old_mot_speed + accel_sat;
       }
-      else if (diff_mot_speed < -20 * Ts)
+      else if (diff_mot_speed < -accel_sat)
       {
-        mot_speed = old_mot_speed - 20 * Ts;
-      }//*/
+        mot_speed = old_mot_speed - accel_sat;
+      } //*/
 
       digitalWrite(dir_pin, mot_dir);
       ledcWriteTone(ledc_channel, mot_speed); //*/
