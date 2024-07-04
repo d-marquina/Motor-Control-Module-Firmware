@@ -70,7 +70,7 @@ float b[3] = {0, 0, 0};
 float a1 = 0;
 float e[3] = {0, 0, 0};
 float u[2] = {0, 0};
-float sat = 100 * 8;   // 400 steps/s (at 8 microsteps) = 120 RPM
+float sat = 400 * 8;   // 400 steps/s (at 8 microsteps) = 120 RPM
 int16_t mot_speed = 0; // steps/s
 bool mot_dir = true;   // Clockwise, depends on connections
 int16_t old_mot_speed = 0;
@@ -121,7 +121,7 @@ void setup()
   Wire.begin(17, 16); // SDA, SCL
   Wire.setClock(400000);
   as5600.begin(4);
-  as5600.setDirection(AS5600_CLOCK_WISE);
+  as5600.setDirection(AS5600_COUNTERCLOCK_WISE);
   as5600.resetCumulativePosition();
 
   pinMode(en_pin, OUTPUT);
@@ -237,9 +237,7 @@ void control_loop_task(void *pvParameters)
   {
     float real_angle = as5600.getCumulativePosition() * 0.088; // To degrees
     float real_set_point = MCM_set_pt * MCM_tr_d / MCM_tr_n;
-    MCM_angle = real_angle * MCM_tr_n / MCM_tr_d; //*/
-    // MCM_angle = as5600.getCumulativePosition() * 0.088; // To degrees
-    // MCM_angle = as5600.readAngle() * 0.088; // To degrees
+    MCM_angle = real_angle * MCM_tr_n / MCM_tr_d;
     angle_sensor.timestamp = millis();
     angle_sensor.data = MCM_angle;
     set_pt_stream.timestamp = angle_sensor.timestamp;
@@ -251,7 +249,6 @@ void control_loop_task(void *pvParameters)
       // PID code begins here
       //----------------------
       e[0] = real_set_point - real_angle;
-      // e[0] = MCM_set_pt - MCM_angle;
 
       u[0] = b[0] * e[0] + b[1] * e[1] + b[2] * e[2] + a1 * u[1];
 
