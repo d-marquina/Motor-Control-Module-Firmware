@@ -252,49 +252,7 @@ void control_loop_task(void *pvParameters)
       //----------------------
       // PID code begins here
       //----------------------
-      e[0] = real_set_point - real_angle;
-
-      u[0] = b[0] * e[0] + b[1] * e[1] + b[2] * e[2] + a1 * u[1];
-
-      if (u[0] >= sat)
-      {
-        u[0] = sat;
-      }
-      else if (u[0] <= -sat)
-      {
-        u[0] = -sat;
-      }
-
-      mot_speed = int(u[0]);
-      if (mot_speed >= 0)
-      {
-        mot_dir = true;
-      }
-      else
-      {
-        mot_speed = -mot_speed;
-        mot_dir = false;
-      }
-
-      // Limit Acceleration
-      int16_t diff_mot_speed = mot_speed - old_mot_speed;
-      int16_t accel_sat = MCM_ustep * int(Ts * 0.2 * base_acc); // Base acceleration set to 10 rev/s2
-      if (diff_mot_speed > accel_sat)
-      {
-        mot_speed = old_mot_speed + accel_sat;
-      }
-      else if (diff_mot_speed < -accel_sat)
-      {
-        mot_speed = old_mot_speed - accel_sat;
-      } //*/
-
-      digitalWrite(dir_pin, mot_dir);
-      ledcWriteTone(ledc_channel, mot_speed); //*/
-
-      e[2] = e[1];
-      e[1] = e[0];
-      u[1] = int(u[0]);
-      old_mot_speed = mot_speed;
+      
 
       //----------------------
       // PID code ends here
