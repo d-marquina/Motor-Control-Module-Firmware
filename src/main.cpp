@@ -35,6 +35,7 @@ uint8_t led_state = 0;
 uint16_t glow_time = 1000;
 uint32_t led_timer = 0; //*/
 char device_id[] = "MCM_00";
+char dev_name[] = "Module 01";
 
 float MCM_angle = 0;
 data_timeseries angle_sensor = {0, 0};
@@ -86,6 +87,7 @@ eui_message_t tracked_variables[] =
         EUI_UINT8("led_blink", blink_enable),
         EUI_UINT8("led_state", led_state),
         EUI_UINT16("lit_time", glow_time), //*/
+        EUI_CHAR_ARRAY("name", dev_name),
         EUI_FLOAT("MCM_angle", MCM_angle),
         EUI_UINT8("MCM_en_mot", MCM_en_mot),
         EUI_INT16("MCM_mot_sp", MCM_mot_sp),
