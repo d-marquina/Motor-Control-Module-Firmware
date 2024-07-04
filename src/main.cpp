@@ -35,6 +35,7 @@ uint8_t led_state = 0;
 uint16_t glow_time = 1000;
 uint32_t led_timer = 0; //*/
 char device_id[] = "MCM_00";
+char dev_name[] = "Module 01";
 
 float MCM_angle = 0;
 data_timeseries angle_sensor = {0, 0};
@@ -45,14 +46,18 @@ uint8_t pul_pin = 25;
 const int ledc_channel = 0;
 uint8_t MCM_en_mot = 0;
 uint8_t old_MCM_en_mot = 0;
-int16_t MCM_mot_sp = 0;
+int16_t MCM_mot_sp = 0; // Max 210 RPM at steps/s
+int8_t MCM_ustep = 8;   // 1/8 microstep by default
+int8_t old_ustep = 8;
 
 data_timeseries set_pt_stream = {0, 0};
 settings_struct module_settings = {false, true, 0, 10};
 uint8_t MCM_pid_mode = false;
 uint8_t old_MCM_pid_mode = false;
-float MCM_set_pt = 180;
+float MCM_set_pt = 0;
 uint32_t tracker_loop = 0;
+uint16_t MCM_tr_n = 1;
+uint16_t MCM_tr_d = 1;
 
 float MCM_b0 = 0;
 float MCM_b1 = 0;
@@ -66,10 +71,12 @@ float b[3] = {0, 0, 0};
 float a1 = 0;
 float e[3] = {0, 0, 0};
 float u[2] = {0, 0};
-float sat = 5000;      // steps/s
-int16_t mot_speed = 0; // steps/s
-bool mot_dir = true;   // Clockwise, depends on connections
+float base_sat = 400;     // 400 steps/s = 120 RPM at full steps
+float sat = base_sat * 8; // 400 steps/s (at 8 microsteps) = 120 RPM
+int16_t mot_speed = 0;    // steps/s
+bool mot_dir = true;      // Clockwise, depends on connections
 int16_t old_mot_speed = 0;
+float base_acc = 10; // Defaults to 10 rev/s2
 
 //=================================================
 // Objects
@@ -80,11 +87,15 @@ eui_message_t tracked_variables[] =
         EUI_UINT8("led_blink", blink_enable),
         EUI_UINT8("led_state", led_state),
         EUI_UINT16("lit_time", glow_time), //*/
+        EUI_CHAR_ARRAY("name", dev_name),
         EUI_FLOAT("MCM_angle", MCM_angle),
         EUI_UINT8("MCM_en_mot", MCM_en_mot),
         EUI_INT16("MCM_mot_sp", MCM_mot_sp),
+        EUI_INT8("MCM_ustep", MCM_ustep),
         EUI_UINT8("MCM_pid_mode", MCM_pid_mode),
         EUI_FLOAT("MCM_set_pt", MCM_set_pt),
+        EUI_UINT16("MCM_tr_n", MCM_tr_n),
+        EUI_UINT16("MCM_tr_d", MCM_tr_d),
         EUI_FLOAT("MCM_b0", MCM_b0),
         EUI_FLOAT("MCM_b1", MCM_b1),
         EUI_FLOAT("MCM_b2", MCM_b2),
@@ -112,8 +123,10 @@ void setup()
   eui_setup_identifier(device_id, 24);
 
   Wire.begin(17, 16); // SDA, SCL
+  Wire.setClock(400000);
   as5600.begin(4);
-  as5600.setDirection(AS5600_CLOCK_WISE);
+  as5600.setDirection(AS5600_COUNTERCLOCK_WISE);
+  as5600.resetCumulativePosition();
 
   pinMode(en_pin, OUTPUT);
   pinMode(dir_pin, OUTPUT);
@@ -174,9 +187,11 @@ void loop()
     // Reset Motor
     MCM_mot_sp = 0;
     ledcWriteTone(ledc_channel, MCM_mot_sp);
+    mot_dir = true;
+    digitalWrite(dir_pin, mot_dir);
     eui_send_tracked("MCM_mot_sp");
     // Reset Set Point
-    MCM_set_pt = 180;
+    MCM_set_pt = 0;
     eui_send_tracked("MCM_set_pt");
     // Reset recording data
     module_settings.begin_flag = false;
@@ -184,6 +199,12 @@ void loop()
     module_settings.trigger_signal = 0;
     // Update backup variable
     old_MCM_pid_mode = MCM_pid_mode;
+  }
+
+  if (MCM_ustep != old_ustep)
+  {
+    sat = base_sat * MCM_ustep;
+    old_ustep = MCM_ustep;
   }
 
   // PID Coefficients Update
@@ -218,7 +239,9 @@ void control_loop_task(void *pvParameters)
 
   for (;;)
   {
-    MCM_angle = as5600.readAngle() * 0.088; // To degrees
+    float real_angle = as5600.getCumulativePosition() * 0.088; // To degrees
+    float real_set_point = MCM_set_pt * MCM_tr_d / MCM_tr_n;
+    MCM_angle = real_angle * MCM_tr_n / MCM_tr_d;
     angle_sensor.timestamp = millis();
     angle_sensor.data = MCM_angle;
     set_pt_stream.timestamp = angle_sensor.timestamp;
@@ -229,7 +252,7 @@ void control_loop_task(void *pvParameters)
       //----------------------
       // PID code begins here
       //----------------------
-      e[0] = MCM_set_pt - MCM_angle;
+      e[0] = real_set_point - real_angle;
 
       u[0] = b[0] * e[0] + b[1] * e[1] + b[2] * e[2] + a1 * u[1];
 
@@ -255,14 +278,15 @@ void control_loop_task(void *pvParameters)
 
       // Limit Acceleration
       int16_t diff_mot_speed = mot_speed - old_mot_speed;
-      if (diff_mot_speed > 20 * Ts)
+      int16_t accel_sat = MCM_ustep * int(Ts * 0.2 * base_acc); // Base acceleration set to 10 rev/s2
+      if (diff_mot_speed > accel_sat)
       {
-        mot_speed = old_mot_speed + 20 * Ts;
+        mot_speed = old_mot_speed + accel_sat;
       }
-      else if (diff_mot_speed < -20 * Ts)
+      else if (diff_mot_speed < -accel_sat)
       {
-        mot_speed = old_mot_speed - 20 * Ts;
-      }
+        mot_speed = old_mot_speed - accel_sat;
+      } //*/
 
       digitalWrite(dir_pin, mot_dir);
       ledcWriteTone(ledc_channel, mot_speed); //*/
@@ -295,7 +319,18 @@ void control_loop_task(void *pvParameters)
     }
     else
     {
-      ledcWriteTone(ledc_channel, MCM_mot_sp);
+      int16_t new_mot_sp = MCM_mot_sp;
+      if (new_mot_sp >= 0)
+      {
+        mot_dir = true;
+      }
+      else
+      {
+        new_mot_sp = -new_mot_sp;
+        mot_dir = false;
+      }
+      digitalWrite(dir_pin, mot_dir);
+      ledcWriteTone(ledc_channel, new_mot_sp);
     }
 
     eui_send_tracked("angle_sensor");
