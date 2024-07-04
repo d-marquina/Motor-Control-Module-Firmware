@@ -70,10 +70,12 @@ float b[3] = {0, 0, 0};
 float a1 = 0;
 float e[3] = {0, 0, 0};
 float u[2] = {0, 0};
-float sat = 400 * 8;   // 400 steps/s (at 8 microsteps) = 120 RPM
-int16_t mot_speed = 0; // steps/s
-bool mot_dir = true;   // Clockwise, depends on connections
+float base_sat = 400;     // 400 steps/s = 120 RPM at full steps
+float sat = base_sat * 8; // 400 steps/s (at 8 microsteps) = 120 RPM
+int16_t mot_speed = 0;    // steps/s
+bool mot_dir = true;      // Clockwise, depends on connections
 int16_t old_mot_speed = 0;
+float base_acc = 10; // Defaults to 10 rev/s2
 
 //=================================================
 // Objects
@@ -199,7 +201,7 @@ void loop()
 
   if (MCM_ustep != old_ustep)
   {
-    sat = 500 * MCM_ustep;
+    sat = base_sat * MCM_ustep;
     old_ustep = MCM_ustep;
   }
 
@@ -274,7 +276,7 @@ void control_loop_task(void *pvParameters)
 
       // Limit Acceleration
       int16_t diff_mot_speed = mot_speed - old_mot_speed;
-      int16_t accel_sat = MCM_ustep * int(Ts * 0.2 * 10); // Acceleration set to 10 rev/s2
+      int16_t accel_sat = MCM_ustep * int(Ts * 0.2 * base_acc); // Base acceleration set to 10 rev/s2
       if (diff_mot_speed > accel_sat)
       {
         mot_speed = old_mot_speed + accel_sat;
